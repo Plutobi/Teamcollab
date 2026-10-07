@@ -198,7 +198,7 @@ svg#world{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
     <p style="margin:0 0 14px;color:var(--muted);line-height:1.7;font-size:13px">
       <span class="kbd">Space</span> drag to pan · <span class="kbd">Ctrl</span>+scroll to zoom<br>
       Double-click to edit text · <span class="kbd">Del</span> remove<br>
-      <span class="kbd">Ctrl</span>+<span class="kbd">D</span> duplicate · <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> undo · paste text for a sticky
+      <span class="kbd">Ctrl</span>+<span class="kbd">D</span> duplicate · <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> undo · <span class="kbd">Ctrl</span>+<span class="kbd">C</span> / <span class="kbd">V</span> copy and paste items, text or images
     </p>
     <div id="clearWrap">
       <h3>Share</h3>
@@ -338,6 +338,8 @@ function markup(it){
       return `<g transform="translate(${it.x} ${it.y})"><rect width="${it.w}" height="${it.h}" fill="transparent"/><foreignObject width="${it.w}" height="${it.h}"><div xmlns="http://www.w3.org/1999/xhtml" class="fo-text fo-free${it.hand?" hand":""}" style="font-size:${it.fs||22}px;color:${inkOf(it.color)};font-weight:${it.bold?700:400}">${t||'<span class="ph">Type something</span>'}</div></foreignObject></g>`;
     case "pen":{const p=it.pts;let d="";for(let i=0;i<p.length;i+=2)d+=(i?"L":"M")+p[i]+" "+p[i+1];if(p.length===2)d+="l0.1 0";
       return `<g transform="translate(${it.x} ${it.y})"><path d="${d}" fill="none" stroke="transparent" stroke-width="${Math.max(14,(it.sw||3)+10)}" stroke-linecap="round" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="${inkOf(it.color)}" stroke-width="${it.sw||3}" stroke-linecap="round" stroke-linejoin="round"/></g>`}
+    case "image":{const ok=typeof it.src==="string"&&/^data:image\/(png|jpeg|webp|gif);base64,/.test(it.src);
+      return `<g transform="translate(${it.x} ${it.y})"><rect width="${it.w}" height="${it.h}" fill="#f1f4f9" stroke="#dde3ec"/>${ok?`<image href="${it.src}" width="${it.w}" height="${it.h}" preserveAspectRatio="none"/>`:""}</g>`}
     case "arrow":{const {x1,y1,x2,y2}=it, a=Math.atan2(y2-y1,x2-x1), L=14, c=inkOf(it.color);
       const h1=`${x2-L*Math.cos(a-0.45)},${y2-L*Math.sin(a-0.45)}`, h2=`${x2-L*Math.cos(a+0.45)},${y2-L*Math.sin(a+0.45)}`;
       return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="transparent" stroke-width="16"/><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/><polygon points="${x2},${y2} ${h1} ${h2}" fill="${c}"/>`}
@@ -383,7 +385,7 @@ function renderCtx(){
   let h="";
   if(it.type==="sticky") h+=CTX_STICKY.map(k=>swatch("fill",k,it.color===k)).join("");
   else if(it.type==="rect"||it.type==="ellipse") h+=CTX_FILL.map(k=>swatch("fill",k,it.fill===k)).join("")+`<span class="vsep"></span>`+CTX_INK.map(k=>swatch("ink",k,it.color===k)).join("");
-  else h+=CTX_INK.map(k=>swatch("ink",k,it.color===k)).join("");
+  else if(it.type!=="image") h+=CTX_INK.map(k=>swatch("ink",k,it.color===k)).join("");
   if(it.type==="text") h+=`<span class="vsep"></span><button class="ibtn" data-a="smaller" aria-label="Smaller text">A−</button><button class="ibtn" data-a="bigger" aria-label="Bigger text">A+</button><button class="ibtn" data-a="hand" aria-label="Handwriting font" style="font-family:var(--f-hand)">Aa</button>`;
   if(it.type==="pen") h+=`<span class="vsep"></span><button class="ibtn" data-a="thin" aria-label="Thinner">−</button><button class="ibtn" data-a="thick" aria-label="Thicker">+</button>`;
   h+=`<span class="vsep"></span><button class="ibtn" data-a="front" aria-label="Bring to front" title="Bring to front"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/></svg></button>
@@ -523,7 +525,7 @@ board.addEventListener("pointerdown",e=>{
   if(tool==="pen"){const it={id,type:"pen",x:0,y:0,pts:[r1(w.x),r1(w.y)],color:inkColor,sw:3,z};items.set(id,it);locks.add(id);renderItem(id);act={mode:"pen",id,last:w};return}
 });
 board.addEventListener("pointermove",e=>{
-  const w=toWorld(e.clientX,e.clientY);
+  const w=toWorld(e.clientX,e.clientY); lastPtr={x:w.x,y:w.y,t:Date.now()};
   sendCursor(w.x,w.y);
   if(!ptrs.has(e.pointerId)) return;
   ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -537,6 +539,7 @@ board.addEventListener("pointermove",e=>{
     if(act.h==="p1"){n.x1=r1(w.x);n.y1=r1(w.y)} else if(act.h==="p2"){n.x2=r1(w.x);n.y2=r1(w.y)}
     else{n.w=r1(Math.max(o.type==="text"?60:40,o.w+w.x-act.w.x));n.h=r1(Math.max(30,o.h+w.y-act.w.y));
       if(o.type==="sticky"&&!e.shiftKey){const s=Math.max(n.w,n.h);n.w=n.h=s}
+      if(o.type==="image"&&!e.shiftKey){n.h=r1(n.w*o.h/o.w)}
       if(o.type==="text") n.h=measureText(n)}
     items.set(act.id,n);renderItem(act.id);return}
   if(act.mode==="shape"){const it=items.get(act.id);let x=Math.min(w.x,act.w.x),y=Math.min(w.y,act.w.y),ww=Math.abs(w.x-act.w.x),hh=Math.abs(w.y-act.w.y);
@@ -593,11 +596,80 @@ window.addEventListener("keydown",e=>{
   const t=KEYMAP[e.key.toLowerCase()]; if(t) setTool(t);
 });
 window.addEventListener("keyup",e=>{if(e.code==="Space"){spaceDown=false;board.classList.remove("panning")}});
+/* ---------- clipboard: copy, cut, paste ---------- */
+const CLIP_TYPE="application/x-classboard";
+let clip=null, lastPtr=null, pasteN=0;
+function inField(t){return t&&t.closest&&t.closest("input,textarea")}
+function pasteTarget(){ // under the cursor if it is on the board, else the middle of the screen
+  if(lastPtr&&Date.now()-lastPtr.t<20000) return {x:lastPtr.x,y:lastPtr.y};
+  return center();
+}
+function placeCopy(src,at){
+  const b=bbox(src), id=uid();
+  const n={...moved(src,at.x-(b.x+b.w/2),at.y-(b.y+b.h/2)),id,z:Date.now()};
+  if(n.pts) n.pts=[...n.pts]; delete n.by; delete n.t;
+  commit(id,null,n); setTool("select"); select(id); return id;
+}
+function pasteItem(src){
+  pasteN++; const at=pasteTarget();
+  if(!lastPtr||Date.now()-lastPtr.t>=20000){at.x+=pasteN*20;at.y+=pasteN*20}
+  placeCopy(src,at);
+}
+function copySelection(e,cut){
+  const it=sel&&items.get(sel); if(!it) return false;
+  clip=structuredClone(it); pasteN=0;
+  if(e&&e.clipboardData){
+    e.clipboardData.setData("text/plain",it.text||"");
+    try{e.clipboardData.setData(CLIP_TYPE,JSON.stringify(it))}catch(_){}
+    e.preventDefault();
+  }
+  if(cut&&canWrite){commit(sel,it,null);select(null);toast("Cut")} else toast("Copied");
+  return true;
+}
+document.addEventListener("copy",e=>{if(!inField(e.target)&&!editing) copySelection(e,false)});
+document.addEventListener("cut",e=>{if(!inField(e.target)&&!editing) copySelection(e,true)});
 window.addEventListener("paste",e=>{
-  if(e.target.closest("input,textarea")||!canWrite) return;
-  const txt=(e.clipboardData&&e.clipboardData.getData("text/plain")||"").trim(); if(!txt) return;
-  e.preventDefault(); const c=center(), id=uid();
-  commit(id,null,{id,type:"sticky",x:r1(c.x-90),y:r1(c.y-90),w:180,h:180,color:stickyColor,text:txt.slice(0,2000),z:Date.now()}); select(id);
+  if(inField(e.target)||!canWrite) return;
+  const cd=e.clipboardData; if(!cd) return;
+  const img=[...(cd.items||[])].find(i=>i.kind==="file"&&/^image\//.test(i.type));
+  if(img){e.preventDefault();addImage(img.getAsFile());return}
+  let raw=""; try{raw=cd.getData(CLIP_TYPE)}catch(_){}
+  if(raw){try{const it=JSON.parse(raw);if(it&&it.type){e.preventDefault();pasteItem(it);return}}catch(_){}}
+  const txt=(cd.getData("text/plain")||"");
+  if(clip&&txt===(clip.text||"")){e.preventDefault();pasteItem(clip);return}   // copied on this board
+  const t=txt.trim(); if(!t) return;
+  e.preventDefault(); const at=pasteTarget(), id=uid();
+  commit(id,null,{id,type:"sticky",x:r1(at.x-90),y:r1(at.y-90),w:180,h:180,color:stickyColor,text:t.slice(0,2000),z:Date.now()}); setTool("select"); select(id);
+});
+
+/* ---------- images (paste or drop) ---------- */
+async function addImage(file,at){
+  if(!file||!canWrite) return;
+  if(file.size>15e6){toast("That image is too large. Try one under 15 MB.");return}
+  try{
+    const url=URL.createObjectURL(file);
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
+    URL.revokeObjectURL(url);
+    let side=1000, q=.85, data="", W=0, H=0;
+    for(let tries=0;tries<12;tries++){
+      const sc=Math.min(1,side/Math.max(img.naturalWidth,img.naturalHeight));
+      W=Math.max(1,Math.round(img.naturalWidth*sc)); H=Math.max(1,Math.round(img.naturalHeight*sc));
+      const cv=document.createElement("canvas"); cv.width=W; cv.height=H; const cx=cv.getContext("2d");
+      cx.fillStyle="#ffffff"; cx.fillRect(0,0,W,H); cx.drawImage(img,0,0,W,H);
+      data=cv.toDataURL("image/jpeg",q);
+      if(data.length<170000) break;
+      if(q>.55) q-=.1; else side*=.8;
+    }
+    if(data.length>=170000){toast("Couldn't shrink that image enough to add it.");return}
+    const p=at||pasteTarget(), dw=Math.min(420,W), dh=r1(dw*H/W), id=uid();
+    commit(id,null,{id,type:"image",x:r1(p.x-dw/2),y:r1(p.y-dh/2),w:dw,h:dh,src:data,z:Date.now()});
+    setTool("select"); select(id);
+  }catch(_){toast("Couldn't read that image.")}
+}
+board.addEventListener("dragover",e=>{if([...(e.dataTransfer?.items||[])].some(i=>i.kind==="file")){e.preventDefault();e.dataTransfer.dropEffect="copy"}});
+board.addEventListener("drop",e=>{
+  const f=[...(e.dataTransfer?.files||[])].find(f=>/^image\//.test(f.type)); if(!f) return;
+  e.preventDefault(); const w=toWorld(e.clientX,e.clientY); addImage(f,{x:w.x,y:w.y});
 });
 
 /* ---------- zoom buttons ---------- */
